@@ -9,9 +9,6 @@ Looping all UCDs that contain HMS.
 # Using HMS_QA.json
 json file to configure HMS_QA.py
 
-TODO:  
-      improve efficiency  
-
 # Using HMS_bd.py  
 Python 2/3 compatible code.  
 This script create a DataBase in SQLITE3  
