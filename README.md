@@ -6,7 +6,10 @@ Python 2/3 compatible code.
 This script create a log.dat that contain information about HMS files.  
 Looping all UCDs that contain HMS.  
 
-TODO: use module logging to improve script.  
+# Using HMS_QA.json
+json file to configure HMS_QA.py
+
+TODO:  
       improve efficiency  
 
 # Using HMS_bd.py  
