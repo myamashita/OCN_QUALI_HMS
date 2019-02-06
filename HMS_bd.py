@@ -2,12 +2,13 @@
 # Márcio
 # Camila
 # start:28/May/2018
-# update: 21/Aug/2018
+# update: 06/Feb/2019
 # Create "HMS.db" DataBase
 # PYTHON 2/3 compatible code
 import re
 import sys
 import json
+import jsonschema
 import logging
 import argparse
 import threading
@@ -38,48 +39,40 @@ if args.debug:
     logging.debug(d_msg)
 
 if sys.version_info.major >= 3:
-    import queue as Queue
     basestring = str
 else:
-    import Queue as Queue
     basestring = basestring
 
 fmt = "%d/%m/%Y %H:%M"
 
 
 class UcdThread(threading.Thread):
-    def __init__(self, name='Thread', ucd_name=[], list_arq=[], bd=[], hms=[]):
+    def __init__(self, DBpath, ucd, initial_time, end_time, erase):
         """ constructor, setting initial variables """
-        self._thread_ucd = ucd_name
-        self._list_arq = list_arq
-        self._bd = bd
-        self._hms = hms
-        threading.Thread.__init__(self, name=name)
+        self._thread_ucd = ucd
+        self._bd =  DatabaseHms(path.join(DBpath, ucd + '.db'), erase)
+        self._hms = AtitudeData(ucd)        
+        self._list_arq = list_arq(self._bd, self._hms, initial_time, end_time)
+        threading.Thread.__init__(self, name=ucd)
 
     def run(self):
         """ main control loop """
+        logging.info('Thread @ process: {}'.format(getpid()))        
         if not self._list_arq:
             logging.info('Files in date range already exists in Database.')
             self._bd.conn.close()
-            pass
-        dados = Queue.Queue()
-        pool = mp.Pool(mp.cpu_count())
-        [dados.put(pool.apply_async(
-            read, args=(i, self._hms))) for i in self._list_arq]
-        while True:
-            try:
-                data = dados.get(block=False, timeout=1)
-                if data.ready() and not data.successful():
-                    print('fail')
-                else:
-                    self._bd.insert_data(data.get())
-                dados.task_done()
-            except Queue.Empty:
-                break
-        pool.close()
-        pool.join()
-        logging.info('End list_arq')                
+            logging.info('{} Database closed.'.format(self._thread_ucd))
+            return
+        setattr(self, 'thread{}'.format(getpid()), mp.Pool())
+        logging.info('List_arq size: {}'.format(len(self._list_arq)))
+        [getattr(self, 'thread{}'.format(getpid())).apply_async(
+            read, args=(i, self._hms),
+            callback=self._bd.insert_data) for i in self._list_arq]
+        getattr(self, 'thread{}'.format(getpid())).close()
+        getattr(self, 'thread{}'.format(getpid())).join()
+        logging.info('End List_arq.')
         self._bd.conn.close()
+        logging.info('{} Database closed.'.format(self._thread_ucd))
 
 
 class DatabaseHms(object):
@@ -182,7 +175,9 @@ class DatabaseHms(object):
         self.curs.execute('DELETE FROM {0} WHERE {0}.DT_AQUISICAO < ?'.format(
             'TB_IMPORTACOES'), [erase])
         self.conn.commit()
+        self.conn.isolation_level = None
         self.curs.execute('VACUUM;')
+        self.conn.isolation_level = ''
         self.conn.commit()
         logging.info('Erased Data older than {}'.format(erase))
 
@@ -243,7 +238,7 @@ class DatabaseHms(object):
                                    data['HEAVE_PER'], data['HEAVE_VEL_M']))
         self.curs.executemany(qry_data, qry_data_insert)
         self.conn.commit()
-        logging.info('Data inserted in {}.'.format(tb))
+        logging.info('{} inserted in {}.'.format(data['DT_AQUISICAO'], tb))
 
 
 class AtitudeData(object):
@@ -290,7 +285,7 @@ class AtitudeData(object):
             critical('Can not access Oracle DataBase.')
 
     def get_data(self, fname):
-        logging.debug('** Function get_data.')
+        logging.debug('** Function get_data. @ P:{}'.format(getpid()))
         assert fname, critical('File not specified.')
         logging.info('input >> {}'.format(fname))
         idx = fname.find('HMS')
@@ -362,7 +357,10 @@ class AtitudeData(object):
                      'ROLL_SM': [], 'INCL': [], 'INCL_M': [], 'HEAVE': [],
                      'HEAVE_M': [], 'HEAVE_PER': [], 'HEAVE_VEL_M': []}
         logging.info('Check acquisiton time.')
-        aqs = " ".join(txtlns[0].split()[-2:])
+        try:
+            aqs = " ".join(txtlns[0].split()[-2:])
+        except Exception as err:
+            critical(err)
         d = self._get_datetime(aqs, "%d/%m/%Y %H:%M:%S")
         msg = 'Acquisition time does not match format "%d/%m/%Y %H:%M:%S".'
         assert isinstance(d, dtm.datetime), critical(msg)
@@ -442,8 +440,8 @@ def list_arq(bd, hms, start, end):
             for x in daterange(start, end) if bd.check_impo(x, hms.ucd) is None]
 
 
-def load_json(json_file=None):
-    logging.debug('** Function load_json.')
+def get_params(json_file=None):
+    logging.debug('** Function get_params.')
     logging.info('input >> {} **'.format(json_file))
     if json_file is None:
         logging.warning('Missing specific json_file.')
@@ -455,8 +453,35 @@ def load_json(json_file=None):
         with open(json_file, 'r') as f:
             ini_file = json.load(f)
     except Exception as err:
+        logging.critical("Poorly-formed text, not JSON:")
         critical(err)
     logging.info('Json file loaded.')
+    schema = {
+        "$schema": "http://json-schema.org/draft-06/schema#",
+        "$ref": "#/definitions/HMSBd",
+        "definitions": {
+            "HMSBd": {
+                "type": "object",
+                "additionalProperties": True,
+                "properties": {
+                    "DBpath": {"type": ["string", "null"]},
+                    "initial_time": {"type":  ["string", "null"]},
+                    "end_time": {"type":  ["string", "null"]},
+                    "erase": {"type":  ["string", "null"]},
+                    "ucds_hms": {"type": "array",
+                                 "items": {"type": "string"}},
+                },
+                "required": ["DBpath", "end_time", "erase",
+                             "initial_time","ucds_hms"],
+                "title": "HMSBd"
+            }
+        }
+    }    
+    try:
+        jsonschema.validate(ini_file, schema)
+    except jsonschema.exceptions.ValidationError as e:
+        logging.critical("Well-formed but invalid JSON:")
+        critical(e)
     check_json(ini_file)
     return ini_file
 
@@ -476,19 +501,19 @@ def get_date(str_in, now, gap=0):
     logging.info('input >> {}'.format(str_in))
     if str_in:
         try:
-            return dtm.datetime.strptime(str_in, fmt)
+            date = dtm.datetime.strptime(str_in, fmt)
         except ValueError:
             critical('Unexpected format of date string.')
     else:
-        return (now - dtm.timedelta(hours=gap))
+        date = (now - dtm.timedelta(hours=gap))
+    logging.info('Using >> {:{fmt}}'.format(date, fmt=fmt))
+    return date
 
 
 def check_json(f_json):
     logging.debug('** Function check_json.')
     now = dtm.datetime.utcnow()
     [f_json.pop(m) for m in list(f_json) if m.startswith('__')]
-    keys = ['DBpath', 'initial_time', 'end_time', 'erase', 'ucds_hms']
-    [critical('{} not avaiable.'.format(i)) for i in keys if i not in f_json]
     logging.info('Check DataBase path.')
     if f_json['DBpath']:
         if not path.isdir(f_json['DBpath']):
@@ -497,16 +522,14 @@ def check_json(f_json):
         f_json['DBpath'] = get_script_dir()
     logging.info('Get initial time.')
     f_json['initial_time'] = get_date(f_json['initial_time'], now, 72)
-    logging.info('Using >> {:{fmt}}'.format(f_json['initial_time'], fmt=fmt))
     logging.info('Get end time.')
     f_json['end_time'] = get_date(f_json['end_time'], now)
-    logging.info('Using >> {:{fmt}}'.format(f_json['end_time'], fmt=fmt))
     logging.debug('Check the time interval.')
     assert (f_json['initial_time'] <= f_json['end_time']), \
         critical('Start {:{fmt}} must be prior to End {:{fmt}}'.format(
             f_json['initial_time'], f_json['end_time'], fmt=fmt))
     del_data = f_json['erase']
-    logging.info('Check erase time.')
+    logging.info('Get erase time.')
     if del_data is not None:
         assert isinstance(del_data, basestring), \
             critical('Assert erase time failed.')
@@ -538,9 +561,8 @@ def check_json(f_json):
 
 def populate_bd(DBpath, ucds_hms, initial_time, end_time, erase):
     logging.debug('** Function populate_bd.')
-    suffix = '.db'
     for j in ucds_hms:
-        DBname = path.join(DBpath, j + suffix)
+        DBname = path.join(DBpath, j + '.db')
         bd = DatabaseHms(DBname, erase)
         hms = AtitudeData(j)
         arq = list_arq(bd, hms, initial_time, end_time)
@@ -557,81 +579,56 @@ def populate_bd(DBpath, ucds_hms, initial_time, end_time, erase):
     logging.info('Close connection with {}'.format(DBname))
 
 
+def populate_bd_Pool(DBpath, ucds_hms, initial_time, end_time, erase):
+    logging.debug('** Function populate_bd_Pool.')
+    for j in ucds_hms:
+        DBname = path.join(DBpath, j + '.db')
+        bd = DatabaseHms(DBname, erase)
+        hms = AtitudeData(j)
+        arq = list_arq(bd, hms, initial_time, end_time)
+        logging.info('List_arq size: {}'.format(len(arq)))        
+        if not arq:
+            logging.info('Files in date range already exists in Database.')
+        else:            
+            pool = mp.Pool()
+            [pool.apply_async(read, args=(i, hms), 
+                              callback=bd.insert_data) for i in arq]
+            pool.close()
+            pool.join()
+            logging.info('End List_arq.')                
+        bd.conn.close()
+        logging.info('{} Database closed.'.format(j))
+
+
 def populate_bd_2thread(DBpath, ucds_hms, initial_time, end_time, erase):
     logging.debug('** Function populate_bd_2thread.')
-    suffix = '.db'
     ucds = iter(ucds_hms)
-    A = next(ucds)  
-    DBname = path.join(DBpath, A + suffix)
-    bd = DatabaseHms(DBname, erase)
-    hms = AtitudeData(A)
-    arq = list_arq(bd, hms, initial_time, end_time)
-    logging.debug('Thread_1 for {}.'.format(A))
-    thread_1 = UcdThread(ucd_name=A, list_arq=arq, bd=bd, hms=hms)
-    thread_1.start()
     for k in ucds:
-        DBname = path.join(DBpath, k + suffix)
-        bd = DatabaseHms(DBname, erase)
-        hms = AtitudeData(k)
-        arq = list_arq(bd, hms, initial_time, end_time)
-        logging.debug('Thread_2 for {}.'.format(k))
-        thread_2 = UcdThread(ucd_name=k, list_arq=arq, bd=bd, hms=hms)
-        thread_2.start()
-        thread_1.join()
-        logging.info('Thread_1 for {} finished.'.format(A))
+        logging.debug('Thread_1 for {}.'.format(k))
+        thread_1 = UcdThread(DBpath, k, initial_time, end_time, erase)
+        thread_1.start()
         try:
             A = next(ucds)
         except Exception:
-            thread_2.join()
-            logging.info('Thread_2 for {} finished.'.format(k))
+            thread_1.join() 
+            logging.info('Thread_1 for {} finished.'.format(k))
             return
-        DBname = path.join(DBpath, A + suffix)    
-        bd = DatabaseHms(DBname, erase)
-        hms = AtitudeData(A)
-        arq = list_arq(bd, hms, initial_time, end_time)
-        logging.debug('Thread_1 for {}.'.format(A))
-        thread_1 = UcdThread(ucd_name=A, list_arq=arq, bd=bd, hms=hms)
-        thread_1.start()
+        logging.debug('Thread_2 for {}.'.format(A))
+        thread_2 = UcdThread(DBpath, A, initial_time, end_time, erase)
+        thread_2.start()
+        thread_1.join()
+        logging.info('Thread_1 for {} finished.'.format(k))
         thread_2.join()
-        logging.info('Thread_2 for {} finished.'.format(k))
-    thread_1.join()
-    logging.info('Thread_1 for {} finished.'.format(A))
+        logging.info('Thread_2 for {} finished.'.format(A))
     return
 
 
 def read(i, hms):
-    logging.info('Process group: {}'.format(getpid()))
+    logging.info('Process #: {}'.format(getpid()))
     dado = hms.get_data(i)
-    logging.info('End process group: {}'.format(getpid()))
+    logging.info('End process #: {}, file: {}'.format(getpid(), dado['FNAME']))
     return dado
-    
-
-def populate_bd_Pool(DBpath, ucds_hms, initial_time, end_time, erase):
-    logging.debug('** Function populate_bd_Thread.')
-    suffix = '.db'
-    for j in ucds_hms:
-        DBname = path.join(DBpath, j + suffix)
-        bd = DatabaseHms(DBname, erase)
-        hms = AtitudeData(j)
-        arq = list_arq(bd, hms, initial_time, end_time)
-        if not arq:
-            logging.info('Files in date range already exists in Database.')
-            pass        
-        dados = Queue.Queue()
-        pool = mp.Pool(mp.cpu_count())
-        [dados.put(pool.apply_async(read, args=(i, hms))) for i in arq]
-        while True:
-            try:
-                data = dados.get(block=False, timeout=1)
-                if data.ready() and not data.successful():
-                    print('fail')
-                else:
-                    bd.insert_data(data.get())
-                dados.task_done()
-            except Queue.Empty:
-                break
-        pool.close()
-        pool.join()
+ 
 
 def critical(msg):
     logging.critical(msg)
@@ -639,7 +636,7 @@ def critical(msg):
 
 
 def main(json_file=None):
-    ini_file = load_json(json_file)
+    ini_file = get_params(json_file)
     #populate_bd(**ini_file)
     #populate_bd_Pool(**ini_file)    
     populate_bd_2thread(**ini_file)
