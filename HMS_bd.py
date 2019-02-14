@@ -392,7 +392,7 @@ class AtitudeData(object):
                 logging.warning(msg)
                 pass
             else:
-                DT_AQS = d.combine(dsample, hsample.time()) if hsample.time() \
+                DT_AQS = d.combine(dsample, hsample.time()) if not hsample.time() == dtm.time(0,0)\
                     else d.combine(d.date(), hsample.time())
                 self.data['DT_SAMPLE'].append(DT_AQS)
                 self.data['CATEGORIA_AERONAVE'].append(float(lndata[-15]))
