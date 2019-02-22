@@ -13,10 +13,10 @@ json file to configure HMS_QA.py
 Python 2/3 compatible code.  
 This script create a DataBase in SQLITE3  
 (Class CheckBd) and populate with a range of data (Class AttitudeData).  
-Data older than 120 days are erased.  
 
-TODO: improve efficiency  
-      create treatement of errors  
+
+# Using HMS_bd.json
+json file to configure HMS_bd.py
 
 # Using HMS_QC.py  
 Python 2/3 compatible code.  
@@ -27,3 +27,8 @@ TODO: improve efficiency
       create method to qualify data  
       create index of quality  
       create better graphs  
+
+# Using HMS_QC_gui.py  
+Python 2/3 compatible code.  
+Graphical User Interface.
+Alow atitude data plots .  

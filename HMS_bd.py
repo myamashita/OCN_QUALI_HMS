@@ -50,14 +50,14 @@ class UcdThread(threading.Thread):
     def __init__(self, DBpath, ucd, initial_time, end_time, erase):
         """ constructor, setting initial variables """
         self._thread_ucd = ucd
-        self._bd =  DatabaseHms(path.join(DBpath, ucd + '.db'), erase)
-        self._hms = AtitudeData(ucd)        
+        self._bd = DatabaseHms(path.join(DBpath, ucd + '.db'), erase)
+        self._hms = AtitudeData(ucd)
         self._list_arq = list_arq(self._bd, self._hms, initial_time, end_time)
         threading.Thread.__init__(self, name=ucd)
 
     def run(self):
         """ main control loop """
-        logging.info('Thread @ process: {}'.format(getpid()))        
+        logging.info('Thread @ process: {}'.format(getpid()))
         if not self._list_arq:
             logging.info('Files in date range already exists in Database.')
             self._bd.conn.close()
@@ -119,7 +119,7 @@ class DatabaseHms(object):
         else:
             logging.info('Try Connect with Database file >> {}.'.format(d))
             self._build_connection(d)
-            #self._check_db_integrity()
+            # self._check_db_integrity()
             self.erase_olddata(self.erase)
 
     def _check_db_integrity(self):
@@ -160,7 +160,7 @@ class DatabaseHms(object):
                "{1}, PITCH {3}, PITCH_DM {3}, PITCH_UM {3}, ROLL {3}, ROLL_PM "
                "{3}, ROLL_SM {3}, INCL {3}, INCL_M {3}, HEAVE {3}, HEAVE_M "
                "{3}, HEAVE_PER {3}, HEAVE_VEL_M {3}); ").format(
-            ''.join(x for x in ucd if x.isalnum()), 'INT', 'NOT NULL', 'REAL') 
+            ''.join(x for x in ucd if x.isalnum()), 'INT', 'NOT NULL', 'REAL')
         self.conn.executescript(qry)
         self.conn.commit()
         self.tables = self.list_ucdtb()
@@ -292,7 +292,7 @@ class AtitudeData(object):
         dt = self._get_datetime(fname[idx:], 'HMS%Y-%m-%d-%H-%M.hms_gz')
         if (idx is -1) or not isinstance(dt, dtm.datetime):
             logging.error(('Wrong time format in filename pattern '
-                           '"{}HMSYYYY-MM-DD-HH-MM.hms_gz".').format(self.id))        
+                           '"{}HMSYYYY-MM-DD-HH-MM.hms_gz".').format(self.id))
             return
         if fname.startswith('{}'.format(self.id)):
             return self._open_file(path.join(self.path, fname))
@@ -370,16 +370,16 @@ class AtitudeData(object):
         for (nln, ln) in enumerate(txtlns, start=2):
             if 'Missao:' in ln:
                 logging.info('Checking UCD name.')
-                logging.info('UCD name in file {}.'.format(ln.split()[-1]))                
+                logging.info('UCD name in file {}.'.format(ln.split()[-1]))
                 self.data['UCD'] = ln.split()[-1]
             if "m/s" in ln:
                 cols = 25 if nln > 10 else 24
-                logging.info('Parsing data from line {}.'.format(nln+1))
+                logging.info('Parsing data from line {}.'.format(nln + 1))
                 gen = (g.split() for g in txtlns[nln:])
                 break
         if not self.data['UCD']:
             self.data['UCD'] = self.ucd
-        for nln2, lndata in enumerate(gen, start=nln+1):
+        for nln2, lndata in enumerate(gen, start=nln + 1):
             hsample = self._get_datetime(lndata[0], '%H:%M:%S')
             if len(lndata) < cols:
                 msg = ('Skipping line {}, which has {} columns. '
@@ -392,7 +392,7 @@ class AtitudeData(object):
                 logging.warning(msg)
                 pass
             else:
-                DT_AQS = d.combine(dsample, hsample.time()) if not hsample.time() == dtm.time(0,0)\
+                DT_AQS = d.combine(dsample, hsample.time()) if not hsample.time() == dtm.time(0, 0)\
                     else d.combine(d.date(), hsample.time())
                 self.data['DT_SAMPLE'].append(DT_AQS)
                 self.data['CATEGORIA_AERONAVE'].append(float(lndata[-15]))
@@ -456,27 +456,22 @@ def get_params(json_file=None):
         logging.critical("Poorly-formed text, not JSON:")
         critical(err)
     logging.info('Json file loaded.')
-    schema = {
-        "$schema": "http://json-schema.org/draft-06/schema#",
-        "$ref": "#/definitions/HMSBd",
-        "definitions": {
-            "HMSBd": {
-                "type": "object",
-                "additionalProperties": True,
-                "properties": {
-                    "DBpath": {"type": ["string", "null"]},
-                    "initial_time": {"type":  ["string", "null"]},
-                    "end_time": {"type":  ["string", "null"]},
-                    "erase": {"type":  ["string", "null"]},
-                    "ucds_hms": {"type": "array",
-                                 "items": {"type": "string"}},
-                },
-                "required": ["DBpath", "end_time", "erase",
-                             "initial_time","ucds_hms"],
-                "title": "HMSBd"
-            }
-        }
-    }    
+    schema = {"$schema": "http://json-schema.org/draft-06/schema#",
+              "$ref": "#/definitions/HMSBd",
+              "definitions": {
+                  "HMSBd": {
+                      "type": "object",
+                      "additionalProperties": True,
+                      "properties": {
+                          "DBpath": {"type": ["string", "null"]},
+                          "initial_time": {"type": ["string", "null"]},
+                          "end_time": {"type": ["string", "null"]},
+                          "erase": {"type": ["string", "null"]},
+                          "ucds_hms": {"type": "array",
+                                       "items": {"type": "string"}}},
+                      "required": ["DBpath", "end_time", "erase",
+                                   "initial_time", "ucds_hms"],
+                      "title": "HMSBd"}}}
     try:
         jsonschema.validate(ini_file, schema)
     except jsonschema.exceptions.ValidationError as e:
@@ -586,16 +581,16 @@ def populate_bd_Pool(DBpath, ucds_hms, initial_time, end_time, erase):
         bd = DatabaseHms(DBname, erase)
         hms = AtitudeData(j)
         arq = list_arq(bd, hms, initial_time, end_time)
-        logging.info('List_arq size: {}'.format(len(arq)))        
+        logging.info('List_arq size: {}'.format(len(arq)))
         if not arq:
             logging.info('Files in date range already exists in Database.')
-        else:            
+        else:
             pool = mp.Pool()
-            [pool.apply_async(read, args=(i, hms), 
+            [pool.apply_async(read, args=(i, hms),
                               callback=bd.insert_data) for i in arq]
             pool.close()
             pool.join()
-            logging.info('End List_arq.')                
+            logging.info('End List_arq.')
         bd.conn.close()
         logging.info('{} Database closed.'.format(j))
 
@@ -610,7 +605,7 @@ def populate_bd_2thread(DBpath, ucds_hms, initial_time, end_time, erase):
         try:
             A = next(ucds)
         except Exception:
-            thread_1.join() 
+            thread_1.join()
             logging.info('Thread_1 for {} finished.'.format(k))
             return
         logging.debug('Thread_2 for {}.'.format(A))
@@ -628,7 +623,7 @@ def read(i, hms):
     dado = hms.get_data(i)
     logging.info('End process #: {}, file: {}'.format(getpid(), dado['FNAME']))
     return dado
- 
+
 
 def critical(msg):
     logging.critical(msg)
@@ -637,8 +632,8 @@ def critical(msg):
 
 def main(json_file=None):
     ini_file = get_params(json_file)
-    #populate_bd(**ini_file)
-    #populate_bd_Pool(**ini_file)    
+    # populate_bd(**ini_file)
+    # populate_bd_Pool(**ini_file)
     populate_bd_2thread(**ini_file)
 
 
