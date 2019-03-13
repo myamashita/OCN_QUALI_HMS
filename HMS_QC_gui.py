@@ -8,16 +8,16 @@
 import sys
 import glob
 import sqlite3
+import threading
 import pandas as pd
-from os import getcwd, path
-from numpy import asarray, diff
-
 from time import sleep
 import matplotlib as mpl
+from os import getcwd, path
+from numpy import asarray, diff
 from collections import OrderedDict
+from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 from matplotlib.colors import rgb2hex
-from datetime import datetime, timedelta
 from matplotlib.dates import DateFormatter, YearLocator, MonthLocator
 from matplotlib.dates import DayLocator, HourLocator, MinuteLocator
 from matplotlib.ticker import (MultipleLocator, FormatStrFormatter,
@@ -33,7 +33,6 @@ else:
     import ttk
     from tkFileDialog import askdirectory
 
-import threading
 degree = u"\u00b0"
 plt.rcParams['axes.grid'] = True
 mpl.rcParams['path.simplify_threshold'] = 1.0
@@ -54,43 +53,39 @@ class HMS_gui:
         self._root = root  # Janela gráfica de origem da aplicação.
         self.fmt = '%d/%m/%Y %H:%M:%S'  # Formato de data/hora usual ocn
         self.fmt_bd = '%Y-%m-%d %H:%M:%S'  # Formato de data/hora SQLite3
-
+        bg = {'bg': BGCOLORAPL}  # Background
+        bf_g = {'bg': BGCOLORAPL, 'fg': 'white'}   # Back and Foreground
         # Frame Principal ============================================ #
-        self._mainfrm = tki.Frame(self._root, bg=BGCOLORAPL)
-
+        self._mainfrm = tki.Frame(self._root, **bg)
         self._menubar = tki.Menu(self._mainfrm)  # Barra de Opções.
-
         # Barra/menu "Arquivo".
         menu = tki.Menu(self._menubar, tearoff=0)
         menu.add_command(label="Path BD...", command=self.open_dir)
         menu.add_command(label="Sair", command=lambda rt=self._root:
                          (rt.quit(), rt.destroy(), plt.close('all')))
         self._menubar.add_cascade(label=u"Arquivo", menu=menu)
-
         # Associação da barra de opções ao frame principal.
         self._mainfrm.master.config(menu=self._menubar)
 
         # ============================================================ #
         # Frame de Banco de dados #
         # ============================================================ #
-        self._bdfrm = tki.Frame(self._mainfrm, bg=BGCOLORAPL,
-                                bd=2, relief='groove')
+        self._bdfrm = tki.Frame(self._mainfrm, bd=2, relief='groove', **bg)
         self._bdfrm.pack(fill='both', padx=6, pady=4, side='top')
         # Subframe de Seleção de BD #
         # ============================================================ #
-        self._selbdfrm = tki.Frame(self._bdfrm, bg=BGCOLORAPL,
-                                   bd=1, relief='groove')
+        self._selbdfrm = tki.Frame(self._bdfrm, bd=1, relief='groove', **bg)
         self._selbdfrm.pack(padx=1, pady=0, side='left', fill='x', expand=1)
-
-        tki.Label(self._selbdfrm, bg=BGCOLORAPL, fg='white', justify='left',
-                  text="Path do Banco de dados:").grid()
+        teste = {'bg': BGCOLORAPL, 'fg': 'white'}
+        tki.Label(self._selbdfrm, text="Path do Banco de dados:",
+                  justify='left', **teste).grid()
 
         self._bd_var = tki.StringVar()  # Variável mutante do BD
         self._bd_var.set(("//sbcnas03/ussub-gds_ocn/Confidencial"
                           "/Dados_UCDs/DESV/HMS_sqlite3"))
-        tki.Label(self._selbdfrm, bg=BGCOLORAPL, fg='white', width=70,
-                  wraplength=680, font=('bold'), textvariable=self._bd_var,
-                  anchor='w').grid(column=1, row=0, padx=1, pady=1, sticky='w')
+        tki.Label(self._selbdfrm, wraplength=680, font=('bold'), width=70,
+                  textvariable=self._bd_var, anchor='w', **bf_g).grid(
+                      column=1, row=0, padx=1, pady=1, sticky='w')
 
         self._rot_ucd = tki.Label(self._selbdfrm, bg='yellow',
                                   fg=BGCOLORAPL, text='UCD:')
@@ -105,38 +100,37 @@ class HMS_gui:
         self._ucd_chosen.state(['readonly'])
 
         for i, j in enumerate(['Aquisição inicial:', 'Aquisição final:']):
-            tki.Label(self._selbdfrm, bg=BGCOLORAPL, fg='white', justify='left',
-                      text=j).grid(column=1, row=1, stick='w', padx=i * 250)
+            tki.Label(self._selbdfrm, justify='left', text=j, **bf_g).grid(
+                column=1, row=1, stick='w', padx=i * 250)
 
         self._lst_dt = []  # lista de datas
         for i in range(2):
             var = tki.StringVar()
-            tki.Label(self._selbdfrm, fg='white', bg=BGCOLORAPL, width=15,
-                      textvariable=var, justify='center').grid(row=1, column=1,
-                          sticky='w', padx=100 + i * 250)
+            tki.Label(self._selbdfrm, width=15, textvariable=var,
+                      justify='center', **bf_g).grid(
+                          row=1, column=1, sticky='w', padx=100 + i * 250)
             self._lst_dt.append(var)  # self._lst_dt[0] data inicial do BD
-                                      # self._lst_dt[1] data final do BD
+            #                           self._lst_dt[1] data final do BD
 
         # ============================================================ #
         # Frame de Plots #
         # ============================================================ #
-        self._pltfrm = tki.LabelFrame(self._mainfrm, bg=BGCOLORAPL,
-            bd=2, relief='groove', fg='white', text=' Plots ')
+        self._pltfrm = tki.LabelFrame(self._mainfrm, bd=2, relief='groove',
+                                      text=' Plots ', **bf_g)
         self._pltfrm.pack(fill='both', padx=6)
 
         # Subframe de Período para plots #
         # ============================================================ #
-        self._datefrm = tki.Frame(self._pltfrm, bg=BGCOLORAPL,
-                                  bd=1, relief='groove')
+        self._datefrm = tki.Frame(self._pltfrm, bd=1, relief='groove', **bg)
         self._datefrm.pack(padx=1, side="top", anchor="w", fill='x', expand=1)
 
         Vars = ['Período:', 'Data Inicial', 'até', 'Data Final',
                 'Freq.:', 'Tx Amostral']
         for h, i in enumerate(range(0, 12, 2)):
             r = 0 if i % 4 else 1
-            tki.Label(self._datefrm, bd=0, bg=BGCOLORAPL, fg='white',
-                  text=Vars[h], font=('Verdana', '8', 'bold'),
-                  justify='center').grid(column=i, row=r, padx=6) 
+            tki.Label(self._datefrm, bd=0, font=('Verdana', '8', 'bold'),
+                      text=Vars[h], justify='center', **bf_g).grid(
+                          column=i, row=r, padx=6)
 
         # Campos de entrada da data inicial e final de consulta
         for i, j in enumerate(['_idatent', '_fdatent']):
@@ -145,9 +139,9 @@ class HMS_gui:
                                        bd=3, width=19, textvariable=var))
             getattr(self, j).grid(column=2 + i * 4, row=1)
             var.trace("w", lambda vn, en, md,
-                dn=getattr(self, j): dn.config(fg=TXCOLORSTD))
+                      dn=getattr(self, j): dn.config(fg=TXCOLORSTD))
             self._lst_dt.append(var)  # self._lst_dt[2] data inicial de consulta
-                                      # self._lst_dt[3] data final de consulta
+            #                           self._lst_dt[3] data final de consulta
 
         # Botões de acréscimo e decréscimo das datas: inicial e final
         Di = [self._idatent, self._lst_dt[2], self._lst_dt[3], self._lst_dt[0]]
@@ -158,26 +152,26 @@ class HMS_gui:
             Vl = Di if i < 4 else Df
             Vr = Dd if i in [1, 5] else Dh
             for j, k in enumerate([1, -1]):
-                tki.Button(self._datefrm, bd=1, text=Vr[j],
-                           font=('Default', '5', 'bold'),
-                           command=lambda da=Vl[1], dt=Vr[-1] * k,
-                           dlim=Vl[2 + j], loc=Vl[0], md=self.moddatevar:
-                           md(da, dt, loc, lim=dlim)).grid(column=i, row=1,
-                               pady=3 - 3 * j, sticky=Vr[2 + j])
+                tki.Button(
+                    self._datefrm, text=Vr[j], font=('Default', '5', 'bold'),
+                    bd=1, command=lambda da=Vl[1], dt=Vr[-1] * k, loc=Vl[0],
+                    dlim=Vl[2 + j], md=self.moddatevar:
+                    md(da, dt, loc, lim=dlim)).grid(
+                        column=i, row=1, pady=3 - 3 * j, sticky=Vr[2 + j])
 
         MODES = [("1Hz", 1), ("0.02Hz-(50s)", 50), ("0.01Hz-(100s)", 100),
                  ("1.66mHz-(600s)", 600)]
         self.step = tki.IntVar(value=1)
-
+        kw = {'selectcolor': BGCOLORAPL, 'bg': BGCOLORAPL, 'fg': 'white'}
         for i, f in enumerate(MODES, start=9):
-            tki.Radiobutton(self._datefrm, selectcolor=BGCOLORAPL, fg='white',
-                            value=f[1], bg=BGCOLORAPL, font=('Verdana', '8'),
-                            text=f[0], variable=self.step).grid(row=1, column=i)
+            tki.Radiobutton(
+                self._datefrm, value=f[1], font=('Verdana', '8'), text=f[0],
+                variable=self.step, **kw).grid(row=1, column=i)
 
         # Subframe de Seleção de Plots individuais #
         # ============================================================ #
-        self._plt_var = tki.LabelFrame(self._pltfrm, bg=BGCOLORAPL,
-            fg='white', bd=1, relief='groove', text=' Individuais ')
+        self._plt_var = tki.LabelFrame(self._pltfrm, bd=1, relief='groove',
+                                       text=' Individuais ', **bf_g)
         self._plt_var.pack(padx=1, side="left", anchor="w")
 
         self.dict_var = {'Pouso': 'POUSO_PERMITIDO', 'Pitch': 'PITCH',
@@ -191,7 +185,6 @@ class HMS_gui:
 
         self.plt_ind_vars = {}
         r = None
-        kw = {'selectcolor': BGCOLORAPL, 'bg': BGCOLORAPL, 'fg': 'white'}
         for i, f in enumerate(self.dict_var):
             self.plt_ind_vars[f] = tki.IntVar(value=0)
             cb = tki.Checkbutton(self._plt_var, variable=self.plt_ind_vars[f],
@@ -204,8 +197,8 @@ class HMS_gui:
         self._bt_cb(self._plt_var, 'Todos', self.plt_ind_vars, 1, 3, 3, 50)
         # Subframe de Seleção de grupo de Plots  #
         # ============================================================ #
-        self._plt_group = tki.LabelFrame(self._pltfrm, bg=BGCOLORAPL,
-            fg='white', bd=1, relief='groove', text=' Agrupados ')
+        self._plt_group = tki.LabelFrame(self._pltfrm, bd=1, relief='groove',
+                                         text=' Agrupados ', **bf_g)
         self._plt_group.pack(padx=1, side="left", anchor="w",
                              fill='x', expand=1)
 
@@ -229,24 +222,24 @@ class HMS_gui:
         # ============================================================ #
         # Frame de Mensagens #
         # ============================================================ #
-        self._msgfrm = tki.LabelFrame(self._mainfrm, bg=BGCOLORAPL,
-            bd=2, relief='groove', fg='white', text=' Mensagens ')
+        self._msgfrm = tki.LabelFrame(self._mainfrm, bd=2, relief='groove',
+                                      text=' Mensagens ', **bf_g)
         self._msgfrm.pack(fill='both', padx=6)
 
         # Variável mutante da mensagem
         self._msg = tki.StringVar()
         self._msg.set("Escolha Banco de dados da UCD:\n")
         # Opções de mensagem
-        self._qrymsgbox = tki.Label(self._msgfrm, fg='yellow', bg=BGCOLORAPL,
-                                    font=('Verdana', '12', 'bold'), bd=1,
-                                    textvariable=self._msg, justify='center')
+        self._qrymsgbox = tki.Label(self._msgfrm, textvariable=self._msg, bd=1,
+                                    fg='yellow', justify='center',
+                                    font=('Verdana', '12', 'bold'), **bg)
         self._qrymsgbox.grid(column=1, row=2, padx=1, pady=1, sticky='n')
 
         # ============================================================ #
         # Frame de Execução #
         # ============================================================ #
-        self._modfrm = tki.LabelFrame(self._mainfrm, bg=BGCOLORAPL,
-            bd=2, relief='groove', fg='white', text=' Execução ')
+        self._modfrm = tki.LabelFrame(self._mainfrm, bd=2, relief='groove',
+                                      text=' Execução ', **bf_g)
         self._modfrm.pack(padx=6, anchor='e')
 
         self._bt_close = tki.Button(self._modfrm, text="Fechar Figuras",
@@ -261,14 +254,13 @@ class HMS_gui:
         # ============================================================ #
         # Frame de Qualificação #
         # ============================================================ #
-        self._qcfrm = tki.LabelFrame(self._mainfrm, bg=BGCOLORAPL,
-            bd=2, relief='groove', fg='white', text=' Qualificação ')
+        self._qcfrm = tki.LabelFrame(self._mainfrm, bd=2, relief='groove',
+                                     text=' Qualificação ', **bf_g)
         self._qcfrm.pack(fill='x', padx=6, pady=4, side='bottom')
 
         # Subframe de QC #
         # ============================================================ #
-        self._qc_data = tki.Frame(self._qcfrm, bg=BGCOLORAPL,
-                                  bd=1, relief='groove')
+        self._qc_data = tki.Frame(self._qcfrm, bd=1, relief='groove', **bg)
         self._qc_data.pack(padx=1, anchor="w", fill='x', expand=1)
 
         self._get_qc_data = tki.Button(self._qc_data, text="Analizar",
@@ -279,10 +271,9 @@ class HMS_gui:
         # Variável mutante da mensagem
         self._msg_qc = tki.StringVar()
         # Opções de mensagem
-        self._msg_boxqc = tki.Label(self._qc_data, bd=1, fg='yellow',
-                                    bg=BGCOLORAPL, justify='center',
-                                    font=('Verdana', '12', 'bold'),
-                                    textvariable=self._msg_qc)
+        self._msg_boxqc = tki.Label(self._qc_data, textvariable=self._msg_qc,
+                                    justify='center', bd=1, fg='yellow',
+                                    font=('Verdana', '12', 'bold'), **bg)
         self._msg_boxqc.grid(column=1, columnspan=6, row=0,
                              padx=1, pady=1, sticky='n')
 
@@ -294,12 +285,12 @@ class HMS_gui:
         for i in range(1, 7, 2):
             for j in range(1, 3):
                 idx = (idx if isinstance(idx, int) else -1) + 1
-                tki.Label(self._qc_data, bg=BGCOLORAPL, text=Vars[idx],
-                          fg='white', justify='left').grid(column=i, row=j)
+                tki.Label(self._qc_data, text=Vars[idx], justify='left',
+                          **bf_g).grid(column=i, row=j)
             v = tki.StringVar()
-            ent = tki.Label(self._qc_data, fg='yellow', bg=BGCOLORAPL,
-                            width=16, font=('Verdana', '12', 'bold'),
-                            textvariable=v, justify='center')
+            ent = tki.Label(self._qc_data, font=('Verdana', '12', 'bold'),
+                            fg='yellow', textvariable=v, justify='center',
+                            width=16, **bg)
             ent.grid(row=1, column=i + 1, sticky='w')
             self._QC_data.append(ent)
             self._QC_data.append(v)
@@ -307,8 +298,8 @@ class HMS_gui:
             for k in range(3, 10):
                 v = tki.StringVar()
                 tki.Label(self._qc_data, fg='yellow', width=10, textvariable=v,
-                          font=('Verdana', '10'), justify='center',
-                          bg=BGCOLORAPL).grid(row=k, column=i, sticky='w')
+                          font=('Verdana', '10'), justify='center', **bg).grid(
+                              row=k, column=i, sticky='w')
                 getattr(self, describe).append(v)
 
         self._tip_msg = tki.StringVar()
@@ -317,17 +308,16 @@ class HMS_gui:
 
         Vars = ['Média: ', 'Desvio: ', 'Min: ', '25%', '50%', '75%', 'Max: ']
         for i, j in enumerate(Vars, start=3):
-            tki.Label(self._qc_data, bg=BGCOLORAPL, fg='white', justify='left',
-                      text=j).grid(column=0, row=i)
+            tki.Label(self._qc_data, justify='left', text=j, **bf_g).grid(
+                column=0, row=i)
 
         # Subframe de Exportação de dados #
         # ============================================================ #
-        self._qc_exp = tki.LabelFrame(self._qcfrm, bg=BGCOLORAPL,
-            fg='white', bd=1, relief='groove', text=' Exportação ')
+        self._qc_exp = tki.LabelFrame(self._qcfrm, bd=1, relief='groove',
+                                      text=' Exportação ', **bf_g)
         self._qc_exp.pack(padx=1, side='top', fill='both')
 
-        self._qc_data = tki.Frame(self._qc_exp, bg=BGCOLORAPL,
-                                  bd=1, relief='groove')
+        self._qc_data = tki.Frame(self._qc_exp, bd=1, relief='groove', **bg)
         self._qc_data.pack(padx=1, side="top", anchor="w", fill='x', expand=1)
 
         self.exp_vars = {}
@@ -335,7 +325,7 @@ class HMS_gui:
         for i, f in enumerate(self.dict_var):
             self.exp_vars[f] = tki.IntVar(value=0)
             cb = tki.Checkbutton(self._qc_data, text=f, selectcolor=BGCOLORAPL,
-                bg=BGCOLORAPL, fg='white', variable=self.exp_vars[f])
+                                 variable=self.exp_vars[f], **bf_g)
             if i % 5 == 0:
                 r = (r if isinstance(r, int) else -1) + 1
             cb.grid(row=r, column=i % 5, sticky='w')
@@ -379,7 +369,7 @@ class HMS_gui:
         root.quit()
         root.destroy()
 
-    def _set_state(self, childList, state):
+    def _set_state(self, childList, state='normal'):
         [ch.configure(state=state) for ch in childList.winfo_children()]
 
     def _cb_B(self, list_cb, boolean):
@@ -387,8 +377,8 @@ class HMS_gui:
 
     def _bt_cb(self, bt, text, loc, lig, col, row, padx):
         tki.Button(bt, text=text,
-            command=lambda: self._cb_B(loc, lig)).grid(column=col,
-                row=row, sticky='w', padx=padx)
+                   command=lambda: self._cb_B(loc, lig)).grid(
+                       column=col, row=row, sticky='w', padx=padx)
 
     def open_dir(self):
         self._bd_var.set(askdirectory())
@@ -498,9 +488,9 @@ class HMS_gui:
 
     def conn_bd_interval(self):
         bd = self._lista[self._ucd_chosen.current()]
+        kw = {'detect_types': sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES}
         try:
-            conn = sqlite3.connect(
-            bd, detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
+            conn = sqlite3.connect(bd, **kw)
             curs = conn.cursor()
             ucd = self._ucd_chosen.get()
             curs.execute(('SELECT MIN(DT_AQUISICAO), MAX(DT_AQUISICAO)'
@@ -511,13 +501,13 @@ class HMS_gui:
             ini = self.get_dt(dates[0][0], self.fmt_bd)
             fin = self.get_dt(dates[0][1], self.fmt_bd)
             dti = fin - timedelta(days=5)
-            self._rot_ucd.configure(bg=rgb2hex((0.392, 0.584, 0.929)), fg='white')
+            self._rot_ucd.configure(bg='#6495ed', fg='white')
             self._lst_dt[0].set(ini.strftime(self.fmt))
             self._lst_dt[1].set(fin.strftime(self.fmt))
             (self._lst_dt[2].set(ini.strftime(self.fmt)) if dti < ini
              else self._lst_dt[2].set(dti.strftime(self.fmt)))
             self._lst_dt[3].set(fin.strftime(self.fmt))
-            [self._set_state(x, 'normal') for x in self._pltfrm.winfo_children()]
+            [self._set_state(x) for x in self._pltfrm.winfo_children()]
             self._bt_plot.config(state='normal')
             self._get_qc_data.config(state='normal')
             self._msg.set("Escolha parâmetros para Plots.\n")
@@ -532,14 +522,16 @@ class HMS_gui:
             self._ucd.get(), self._lst_dt[2].get(), self._lst_dt[3].get()))
         y = getattr(self, '_last_ini', None)
         if y is not None:
-            if (self._last_ini <= self._lst_dt[2].get()) and (self._last_fin >= self._lst_dt[3].get()):
+            In = self._last_ini <= self.get_dt(self._lst_dt[2].get(), self.fmt)
+            Fn = self._last_fin >= self.get_dt(self._lst_dt[3].get(), self.fmt)
+            if In * Fn:
                 self._bt_plot.after(1000, self.check_if_data, self._bt_plot)
                 return
         self._msg.set(('Data inicial: {}\n'
                        'Data final: {}').format(self._lst_dt[2].get(),
                                                 self._lst_dt[3].get()))
-        self._last_ini = self._lst_dt[2].get()
-        self._last_fin = self._lst_dt[3].get()
+        self._last_ini = self.get_dt(self._lst_dt[2].get(), self.fmt)
+        self._last_fin = self.get_dt(self._lst_dt[3].get(), self.fmt)
         self._toplevel('Requisitando dados de {}.'.format(self._ucd.get()))
         t2 = threading.Thread(target=self.get_data)
         t2.daemon = True
@@ -552,16 +544,17 @@ class HMS_gui:
         ini = self.get_dt(self._lst_dt[2].get(), self.fmt)
         fin = self.get_dt(self._lst_dt[3].get(), self.fmt)
         bd = self._lista[self._ucd_chosen.current()]
-        conn = sqlite3.connect(
-            bd, detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
+        kw = {'detect_types': sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES}
+        conn = sqlite3.connect(bd, **kw)
         tb_ = ''.join(x for x in self._ucd_chosen.get() if x.isalnum())
         idx = 'TB_UCD_{}.DT_AQUISICAO'.format(tb_)
         sel = 'SELECT * FROM TB_UCD_{}'.format(tb_)
         fil = "WHERE {0}>='{1}' AND {0}<='{2}'".format(idx, ini, fin)
         qyr_order = 'ORDER BY {};'.format(idx)
         full_qry = '{} {} {}'.format(sel, fil, qyr_order)
-        self.data = pd.read_sql_query(full_qry, conn, index_col='DT_AQUISICAO',
-                        parse_dates={'DT_AQUISICAO': '%Y-%m-%d %H:%M:%S'})
+        self.data = pd.read_sql_query(
+            full_qry, conn, index_col='DT_AQUISICAO',
+            parse_dates={'DT_AQUISICAO': '%Y-%m-%d %H:%M:%S'})
 
     def _fitting(self):
         df = self.data[~self.data.index.duplicated()]
@@ -576,8 +569,8 @@ class HMS_gui:
         self._QC_data[1].set('{:.0f}'.format(index2.size))
         self._QC_data[3].set('{:.0f}'.format(self.fit_data.shape[0]))
         self._QC_data[5].set('{:.0f}'.format(valid.shape[0]))
-        self._tip_msg.set(('{:.2f}% da série esperada\n'
-            '{:.2f}% da série recebida').format(
+        self._tip_msg.set(
+            '{:.2f}% da série esperada\n{:.2f}% da série recebida'.format(
                 100 * valid.shape[0] / index2.size,
                 100 * valid.shape[0] / self.fit_data.shape[0]))
         if index2.size != self.fit_data.shape[0]:
@@ -649,6 +642,12 @@ class HMS_gui:
         else:
             window.destroy()
 
+    def plot_empty(self, ax):
+        msg = 'Plot request returned an empty object'
+        kw = {'family': 'serif', 'style': 'italic', 'ha': 'center',
+              'wrap': True}
+        ax.text(0.5, 0.5, msg, **kw)
+
     def plt_ind_var(self):
         df = self.fit_data[::int(self.step.get())].copy()
         for key, value in self.plt_ind_vars.items():
@@ -658,10 +657,7 @@ class HMS_gui:
                 fig.canvas.draw()
                 ax = fig.add_subplot(1, 1, 1)
                 if df.empty:
-                    msg = 'Plot request returned an empty object'
-                    kw = {'family': 'serif', 'style': 'italic',
-                          'ha': 'center', 'wrap': True}
-                    ax.text(0.5, 0.5, msg, **kw)
+                    self.plot_empty(ax)
                 else:
                     ax.cla()
                     ax.plot(df.index, df[self.dict_var[key]])
@@ -694,20 +690,14 @@ class HMS_gui:
     def plot_PRH(self, data):
         """ Plot of variables PITCH, ROLL and HEAVE."""
         dic = self.dict_fig.copy()
-        dic.pop('axIN')
-        dic.pop('axHV_M')
-        dic.pop('axHV_P')
-        dic.pop('axVArf')
+        [dic.pop(i) for i in ['axIN', 'axHV_M', 'axHV_P', 'axVArf']]
         fig, (self.axPT, self.axRL, self.axHV) = plt.subplots(
             nrows=3, facecolor=(1.0, 1.0, 1.0), figsize=(12, 8), sharex=True)
         fig.show()
         fig.canvas.draw()
         self.axPT.set_title('Atitudes @ {}'.format(self._ucd.get()))
         if data.empty:
-            msg = 'Plot request returned an empty object'
-            kw = {'family': 'serif', 'style': 'italic',
-                  'ha': 'center', 'wrap': True}
-            [getattr(self, i).text(0.5, 0.5, msg, **kw) for i in dic.keys()]
+            [self.plot_empty(getattr(self, i)) for i in dic.keys()]
         else:
             for i in dic:
                 self.plot_sub(data, i, dic[i])
@@ -715,20 +705,14 @@ class HMS_gui:
     def plot_HV(self, data):
         """ Plot of variables HEAVE MAX., HEAVE T. and HEAVE VEL."""
         dic = self.dict_fig.copy()
-        dic.pop('axPT')
-        dic.pop('axRL')
-        dic.pop('axIN')
-        dic.pop('axHV')
+        [dic.pop(i) for i in ['axPT', 'axRL', 'axIN', 'axHV']]
         fig, (self.axHV_M, self.axHV_P, self.axVArf) = plt.subplots(
             nrows=3, facecolor=(1.0, 1.0, 1.0), figsize=(12, 8), sharex=True)
         fig.show()
         fig.canvas.draw()
         self.axHV_M.set_title('HEAVE @ {}'.format(self._ucd.get()))
         if data.empty:
-            msg = 'Plot request returned an empty object'
-            kw = {'family': 'serif', 'style': 'italic',
-                  'ha': 'center', 'wrap': True}
-            [getattr(self, i).text(0.5, 0.5, msg, **kw) for i in dic.keys()]
+            [self.plot_empty(getattr(self, i)) for i in dic.keys()]
         else:
             for i in dic:
                 self.plot_sub(data, i, dic[i])
@@ -736,19 +720,14 @@ class HMS_gui:
     def plot_PRIV(self, data):
         """ Plot of variables PITCH, ROLL, INCLINATION and HEAVE."""
         dic = self.dict_fig.copy()
-        dic.pop('axHV')
-        dic.pop('axHV_M')
-        dic.pop('axHV_P')
+        [dic.pop(i) for i in ['axHV', 'axHV_M', 'axHV_P']]
         fig, (self.axPT, self.axRL, self.axIN, self.axVArf) = plt.subplots(
             nrows=4, facecolor=(1.0, 1.0, 1.0), figsize=(12, 8), sharex=True)
         fig.show()
         fig.canvas.draw()
         self.axPT.set_title('Atitudes @ {}'.format(self._ucd.get()))
         if data.empty:
-            msg = 'Plot request returned an empty object'
-            kw = {'family': 'serif', 'style': 'italic',
-                  'ha': 'center', 'wrap': True}
-            [getattr(self, i).text(0.5, 0.5, msg, **kw) for i in dic.keys()]
+            [self.plot_empty(getattr(self, i)) for i in dic.keys()]
         else:
             for i in dic:
                 self.plot_sub(data, i, dic[i])
@@ -756,26 +735,21 @@ class HMS_gui:
     def plot_full_qc(self, data):
         """ Plot of variables determinants to close helideck."""
         dic = self.dict_fig.copy()
-        dic.pop('axHV')
-        dic.pop('axHV_M')
-        dic.pop('axHV_P')
+        [dic.pop(i) for i in ['axHV', 'axHV_M', 'axHV_P']]
         fig, (self.axPT, self.axRL, self.axIN, self.axVArf) = plt.subplots(
             nrows=4, facecolor=(1.0, 1.0, 1.0), figsize=(12, 8), sharex=True)
         fig.show()
         fig.canvas.draw()
         self.axPT.set_title('Atitudes @ {}'.format(self._ucd.get()))
         if data.empty:
-            msg = 'Plot request returned an empty object'
-            kw = {'family': 'serif', 'style': 'italic',
-                  'ha': 'center', 'wrap': True}
-            [getattr(self, i).text(0.5, 0.5, msg, **kw) for i in dic.keys()]
+            [self.plot_empty(getattr(self, i)) for i in dic.keys()]
         else:
             for i in dic:
                 self.plot_sub(data, i, dic[i])
             step = int(self.step.get())
             df = data['POUSO_PERMITIDO'][::step]
             mask = df == 0
-            self.axVArf.plot(df[mask], 'ro')
+            self.axVArf.plot(df.index[mask], df[mask], 'ro')
 
     def plot_sub(self, data, axes_name, dict_key):
         """ Plot key of dict (inside key type 0, 1, 2)."""
@@ -787,8 +761,8 @@ class HMS_gui:
                 ax.plot(df.index, df[i[1]], ':', color='coral')
             elif i[1] == 'LIM':
                 val = asarray([i[4] if j else i[3] for j in data[i[2]]])
-                ax.fill_between(data.index,
-                                -(abs(val) + val) / 2, abs(val), **kw)
+                ax.fill_between(
+                    data.index, -(abs(val) + val) / 2, abs(val), **kw)
             elif i[0] == 0:
                 ax.plot(df.index, df[i[1]], '.-')
                 ax.set_ylabel(u'{} [{}]'.format(i[1], i[2]))
@@ -796,8 +770,8 @@ class HMS_gui:
 
     def _set_plot(self, ax):
         ax.autoscale(enable=True, axis='x', tight=True)
-        ax.get_yaxis().set_major_formatter(FuncFormatter(lambda x,
-                                                         p: '%1.2f' % x))
+        ax.get_yaxis().set_major_formatter(
+            FuncFormatter(lambda x, p: '%1.2f' % x))
         ax.fmt_xdata = DateFormatter('%d/%m/%y %H:%M:%S')
         ax.xaxis.set_minor_locator(AutoMinorLocator())
         dt_fmt = '%d/%m\n%H:%M:%S' if diff(
@@ -816,10 +790,12 @@ class HMS_gui:
         else:
             output = self.valid[var].copy()
             fim = '_valid.csv'
-        name = '{}_{:{fmt}}_{:{fmt}}{}'.format(self._ucd.get(),
-            output.index.min(), output.index.max(), fim, fmt='%Y%m%d%H%M%S')
+        name = '{}_{:{fmt}}_{:{fmt}}{}'.format(
+            self._ucd.get(), output.index.min(), output.index.max(), fim,
+            fmt='%Y%m%d%H%M%S')
         output.to_csv(path.join(getcwd(), name))
         return self.msg_temp('Dados exportados.\n')
+
 
 def main():
     """Função para rodar interface usuário."""
